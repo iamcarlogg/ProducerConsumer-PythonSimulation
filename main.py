@@ -1,8 +1,10 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QPushButton, 
-                             QTextEdit, QProgressBar, QGroupBox, QFormLayout)
+                             QTextEdit, QProgressBar, QGroupBox, QFormLayout,
+                             QRadioButton, QButtonGroup)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal, QObject
+from PyQt5.QtGui import QFont
 from shared_buffer import SharedBuffer
 from producer import Producer
 from consumer import Consumer
@@ -16,7 +18,7 @@ class ProducerConsumerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Producer-Consumer Simulation")
-        self.setGeometry(100, 100, 900, 750)
+        self.setGeometry(100, 100, 950, 800)
         
         self.buffer = None
         self.producers = []
@@ -55,6 +57,29 @@ class ProducerConsumerApp(QMainWindow):
         self.num_consumers_input.setMaximumWidth(100)
         config_layout.addRow("Number of Consumers:", self.num_consumers_input)
         
+        # Initial Buffer State
+        state_label = QLabel("Initial Buffer State:")
+        state_layout = QHBoxLayout()
+        
+        self.state_button_group = QButtonGroup()
+        
+        self.empty_radio = QRadioButton("Empty (consumers wait)")
+        self.empty_radio.setChecked(True)
+        self.state_button_group.addButton(self.empty_radio, 1)
+        state_layout.addWidget(self.empty_radio)
+        
+        self.full_radio = QRadioButton("Full (producers wait)")
+        self.state_button_group.addButton(self.full_radio, 2)
+        state_layout.addWidget(self.full_radio)
+        
+        self.normal_radio = QRadioButton("Normal (half full)")
+        self.state_button_group.addButton(self.normal_radio, 3)
+        state_layout.addWidget(self.normal_radio)
+        
+        state_layout.addStretch()
+        
+        config_layout.addRow(state_label, state_layout)
+        
         config_group.setLayout(config_layout)
         main_layout.addWidget(config_group)
         
@@ -74,6 +99,13 @@ class ProducerConsumerApp(QMainWindow):
         self.buffer_progress.setMinimumHeight(30)
         buffer_layout.addWidget(self.buffer_progress)
         
+        # Buffer Contents Display
+        self.buffer_contents_label = QLabel("Buffer Contents: []")
+        self.buffer_contents_label.setAlignment(Qt.AlignCenter)
+        self.buffer_contents_label.setStyleSheet("font-size: 12px; font-family: Monaco, Menlo, monospace; padding: 10px; background-color: #f0f0f0; border-radius: 5px;")
+        self.buffer_contents_label.setWordWrap(True)
+        buffer_layout.addWidget(self.buffer_contents_label)
+        
         buffer_group.setLayout(buffer_layout)
         main_layout.addWidget(buffer_group)
         
@@ -83,7 +115,7 @@ class ProducerConsumerApp(QMainWindow):
         
         self.status_text = QTextEdit()
         self.status_text.setReadOnly(True)
-        self.status_text.setMaximumHeight(150)
+        self.status_text.setMaximumHeight(120)
         self.status_text.setStyleSheet("font-family: Arial; font-size: 11px;")
         status_layout.addWidget(self.status_text)
         
@@ -189,6 +221,24 @@ class ProducerConsumerApp(QMainWindow):
         # Create buffer with thread-safe logging
         self.buffer = SharedBuffer(buffer_capacity, self.log_message_from_thread)
         
+        # Get selected initial state
+        selected_state = self.state_button_group.checkedId()
+        
+        # Initialize buffer based on selection
+        if selected_state == 2:  # Full
+            self.log_message_safe("=== Starting with FULL buffer ===")
+            for i in range(buffer_capacity):
+                self.buffer.buffer.append(f"Initial-{i+1}")
+            self.log_message_safe(f"Buffer initialized with {buffer_capacity} items")
+        elif selected_state == 3:  # Normal (half full)
+            half = buffer_capacity // 2
+            self.log_message_safe(f"=== Starting with buffer half full ({half} items) ===")
+            for i in range(half):
+                self.buffer.buffer.append(f"Initial-{i+1}")
+            self.log_message_safe(f"Buffer initialized with {half} items")
+        else:  # Empty
+            self.log_message_safe("=== Starting with EMPTY buffer ===")
+        
         # Clear status
         self.status_text.clear()
         
@@ -247,13 +297,22 @@ class ProducerConsumerApp(QMainWindow):
         if self.buffer:
             size = self.buffer.get_size()
             capacity = self.buffer.get_capacity()
+            contents = self.buffer.get_buffer_contents()
             percentage = int((size / capacity * 100)) if capacity > 0 else 0
             
+            # Update buffer size label
             self.buffer_label.setText(f"Buffer: {size} / {capacity}")
             self.buffer_progress.setValue(percentage)
             
+            # Update buffer contents display
+            if contents:
+                contents_str = ", ".join(str(item) for item in contents)
+                self.buffer_contents_label.setText(f"Buffer Contents: [{contents_str}]")
+            else:
+                self.buffer_contents_label.setText("Buffer Contents: [EMPTY]")
+            
             # Change color based on fullness
-            if percentage > 80:
+            if percentage >= 100:
                 self.buffer_progress.setStyleSheet("""
                     QProgressBar {
                         border: 2px solid grey;
@@ -264,7 +323,8 @@ class ProducerConsumerApp(QMainWindow):
                         background-color: #f44336;
                     }
                 """)
-            elif percentage > 50:
+                self.buffer_contents_label.setStyleSheet("font-size: 12px; font-family: Monaco, Menlo, monospace; padding: 10px; background-color: #ffcccc; border-radius: 5px;")
+            elif percentage > 80:
                 self.buffer_progress.setStyleSheet("""
                     QProgressBar {
                         border: 2px solid grey;
@@ -275,6 +335,19 @@ class ProducerConsumerApp(QMainWindow):
                         background-color: #FF9800;
                     }
                 """)
+                self.buffer_contents_label.setStyleSheet("font-size: 12px; font-family: Monaco, Menlo, monospace; padding: 10px; background-color: #fff3cd; border-radius: 5px;")
+            elif percentage == 0:
+                self.buffer_progress.setStyleSheet("""
+                    QProgressBar {
+                        border: 2px solid grey;
+                        border-radius: 5px;
+                        text-align: center;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #9E9E9E;
+                    }
+                """)
+                self.buffer_contents_label.setStyleSheet("font-size: 12px; font-family: Monaco, Menlo, monospace; padding: 10px; background-color: #e0e0e0; border-radius: 5px;")
             else:
                 self.buffer_progress.setStyleSheet("""
                     QProgressBar {
@@ -286,6 +359,7 @@ class ProducerConsumerApp(QMainWindow):
                         background-color: #4CAF50;
                     }
                 """)
+                self.buffer_contents_label.setStyleSheet("font-size: 12px; font-family: Monaco, Menlo, monospace; padding: 10px; background-color: #d4edda; border-radius: 5px;")
 
 def main():
     app = QApplication(sys.argv)

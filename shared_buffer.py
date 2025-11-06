@@ -39,6 +39,10 @@ class SharedBuffer:
             return len(self.buffer)
     def get_capacity(self):
         return self.capacity
+    def get_buffer_contents(self):
+        """Returns the current buffer contents as a list"""
+        with self.lock:
+            return list(self.buffer)
     def log(self, message):
         if self.log_callback:
             self.log_callback(message)
