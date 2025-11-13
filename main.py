@@ -2,9 +2,8 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                              QTextEdit, QProgressBar, QGroupBox, QFormLayout,
-                             QRadioButton, QButtonGroup)
+                             QRadioButton, QButtonGroup, QSlider)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal, QObject
-from PyQt5.QtGui import QFont
 from shared_buffer import SharedBuffer
 from producer import Producer
 from consumer import Consumer
@@ -18,7 +17,7 @@ class ProducerConsumerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Producer-Consumer Simulation")
-        self.setGeometry(100, 100, 950, 800)
+        self.setGeometry(100, 100, 950, 850)
         
         self.buffer = None
         self.producers = []
@@ -56,6 +55,39 @@ class ProducerConsumerApp(QMainWindow):
         self.num_consumers_input = QLineEdit("2")
         self.num_consumers_input.setMaximumWidth(100)
         config_layout.addRow("Number of Consumers:", self.num_consumers_input)
+        
+        # Speed Controls
+        speed_layout = QVBoxLayout()
+        
+        # Producer Speed
+        producer_speed_label = QLabel("Producer Speed: 2.0s")
+        self.producer_speed_label = producer_speed_label
+        speed_layout.addWidget(producer_speed_label)
+        
+        self.producer_speed_slider = QSlider(Qt.Horizontal)
+        self.producer_speed_slider.setMinimum(5)  # 0.5 seconds
+        self.producer_speed_slider.setMaximum(50)  # 5.0 seconds
+        self.producer_speed_slider.setValue(20)  # 2.0 seconds
+        self.producer_speed_slider.setTickPosition(QSlider.TicksBelow)
+        self.producer_speed_slider.setTickInterval(5)
+        self.producer_speed_slider.valueChanged.connect(self.update_producer_speed_label)
+        speed_layout.addWidget(self.producer_speed_slider)
+        
+        # Consumer Speed
+        consumer_speed_label = QLabel("Consumer Speed: 2.5s")
+        self.consumer_speed_label = consumer_speed_label
+        speed_layout.addWidget(consumer_speed_label)
+        
+        self.consumer_speed_slider = QSlider(Qt.Horizontal)
+        self.consumer_speed_slider.setMinimum(5)  # 0.5 seconds
+        self.consumer_speed_slider.setMaximum(50)  # 5.0 seconds
+        self.consumer_speed_slider.setValue(25)  # 2.5 seconds
+        self.consumer_speed_slider.setTickPosition(QSlider.TicksBelow)
+        self.consumer_speed_slider.setTickInterval(5)
+        self.consumer_speed_slider.valueChanged.connect(self.update_consumer_speed_label)
+        speed_layout.addWidget(self.consumer_speed_slider)
+        
+        config_layout.addRow("Simulation Speed:", speed_layout)
         
         # Initial Buffer State
         state_label = QLabel("Initial Buffer State:")
@@ -105,6 +137,12 @@ class ProducerConsumerApp(QMainWindow):
         self.buffer_contents_label.setStyleSheet("font-size: 12px; font-family: Monaco, Menlo, monospace; padding: 10px; background-color: #f0f0f0; border-radius: 5px;")
         self.buffer_contents_label.setWordWrap(True)
         buffer_layout.addWidget(self.buffer_contents_label)
+        
+        # Waiting Threads Counter
+        self.waiting_label = QLabel("Waiting: Producers: 0 | Consumers: 0")
+        self.waiting_label.setAlignment(Qt.AlignCenter)
+        self.waiting_label.setStyleSheet("font-size: 13px; font-weight: bold; padding: 8px; background-color: #fff9c4; border-radius: 5px; margin-top: 5px;")
+        buffer_layout.addWidget(self.waiting_label)
         
         buffer_group.setLayout(buffer_layout)
         main_layout.addWidget(buffer_group)
@@ -184,6 +222,22 @@ class ProducerConsumerApp(QMainWindow):
         control_layout.addStretch()
         main_layout.addLayout(control_layout)
     
+    def update_producer_speed_label(self):
+        value = self.producer_speed_slider.value() / 10.0
+        self.producer_speed_label.setText(f"Producer Speed: {value:.1f}s")
+        
+        # Update running producers
+        for producer in self.producers:
+            producer.production_delay = value
+    
+    def update_consumer_speed_label(self):
+        value = self.consumer_speed_slider.value() / 10.0
+        self.consumer_speed_label.setText(f"Consumer Speed: {value:.1f}s")
+        
+        # Update running consumers
+        for consumer in self.consumers:
+            consumer.consumption_delay = value
+    
     def log_message_safe(self, message):
         """Thread-safe log message handler"""
         self.log_text.append(message)
@@ -218,6 +272,10 @@ class ProducerConsumerApp(QMainWindow):
             self.log_message_safe("Error: Please enter valid numbers")
             return
         
+        # Get speed values
+        producer_delay = self.producer_speed_slider.value() / 10.0
+        consumer_delay = self.consumer_speed_slider.value() / 10.0
+        
         # Create buffer with thread-safe logging
         self.buffer = SharedBuffer(buffer_capacity, self.log_message_from_thread)
         
@@ -250,7 +308,7 @@ class ProducerConsumerApp(QMainWindow):
                     emitter.status_signal.emit()
                 return callback
             
-            producer = Producer(self.buffer, f"Producer-{i+1}", 1.0, None)
+            producer = Producer(self.buffer, f"Producer-{i+1}", producer_delay, None)
             producer.last_status = "Starting..."
             producer.status_callback = make_status_callback(producer, self.signal_emitter)
             self.producers.append(producer)
@@ -264,7 +322,7 @@ class ProducerConsumerApp(QMainWindow):
                     emitter.status_signal.emit()
                 return callback
             
-            consumer = Consumer(self.buffer, f"Consumer-{i+1}", 1.5, None)
+            consumer = Consumer(self.buffer, f"Consumer-{i+1}", consumer_delay, None)
             consumer.last_status = "Starting..."
             consumer.status_callback = make_status_callback(consumer, self.signal_emitter)
             self.consumers.append(consumer)
@@ -273,8 +331,11 @@ class ProducerConsumerApp(QMainWindow):
         # Update UI
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.producer_speed_slider.setEnabled(True)
+        self.consumer_speed_slider.setEnabled(True)
         
         self.log_message_safe("=== Simulation Started ===")
+        self.log_message_safe(f"Producer delay: {producer_delay}s | Consumer delay: {consumer_delay}s")
     
     def stop_simulation(self):
         # Stop all threads
